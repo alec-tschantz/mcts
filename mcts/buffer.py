@@ -8,9 +8,9 @@ class Transition(eqx.Module):
     action: Array
     reward: Array
     done: Array
-    returns: Array
     value: Array
     action_probs: Array
+    returns: Array
     weight: Array
 
 
