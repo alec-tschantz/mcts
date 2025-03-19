@@ -1,2 +1,3 @@
 from .env import Pong
-from .buffer import Buffer, Transition, compute_returns
+from .buffer import Buffer, Transition
+from .utils import compute_returns
