@@ -5,7 +5,7 @@ import equinox as eqx
 from jax import Array
 from jax import numpy as jnp
 from jax import random as jr
-from jax import vmap, lax
+from jax import vmap, lax, nn
 
 from . import utils
 from .buffer import Transition
@@ -15,7 +15,7 @@ def root_fn(
     model: eqx.Module, env: eqx.Module, obs: Array, key: jr.PRNGKey
 ) -> mctx.RootFnOutput:
     value_logits, policy_logits = vmap(model)(obs)
-    value = mcts.from_discrete(nn.softmax(value_logits), model.value_dim)
+    value = value_logits.squeeze(-1)
     return mctx.RootFnOutput(prior_logits=policy_logits, value=value, embedding=obs)
 
 
@@ -32,7 +32,7 @@ def recurrent_fn(
         obs, action.astype(jnp.int32), jr.split(key, batch_size)
     )
     value_logits, policy_logits = vmap(model)(next_obs)
-    value = mcts.from_discrete(nn.softmax(value_logits), model.value_dim)
+    value = value_logits.squeeze(-1)
     discount = jnp.where(done, 0.0, 1.0)
     return (
         mctx.RecurrentFnOutput(
@@ -52,7 +52,7 @@ def plan_fn(
     key: jr.PRNGKey,
     max_depth: int = 20,
     gumbel_scale: float = 1.0,
-    num_simulations: int = 100,
+    num_simulations: int = 500,
 ) -> tuple[int, Array, float]:
     root = root_fn(model, env, obs[None], key)
     out = mctx.gumbel_muzero_policy(
