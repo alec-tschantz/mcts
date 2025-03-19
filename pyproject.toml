@@ -10,12 +10,8 @@ dependencies = [
     "jax==0.4.38",
     "equinox==0.11.11",
     "optax==0.2.4",
-    "mctx==0.0.5"
-]
-
-[project.optional-dependencies]
-notebooks = [
-    "mediapy==1.2.2"
+    "mctx==0.0.5",
+    "wandb==0.19.8"
 ]
 
 [tool.setuptools.packages.find]

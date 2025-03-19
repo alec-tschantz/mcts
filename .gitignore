@@ -1,5 +1,4 @@
-data/*
-!data/.gitkeep
+wandb/
 
 # Mac OS
 .DS_Store
