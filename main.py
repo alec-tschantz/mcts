@@ -147,8 +147,8 @@ def main():
 
             log_episode_metrics(env, traj, env_steps, ep)
 
-    eqx.tree_serialise_leaves("data/model.eqx", model)
-    eqx.tree_serialise_leaves("data/buffer.eqx", buffer)
+        eqx.tree_serialise_leaves("data/model.eqx", model)
+        eqx.tree_serialise_leaves("data/buffer.eqx", buffer)
     wandb.finish()
 
 
