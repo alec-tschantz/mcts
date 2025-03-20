@@ -17,7 +17,7 @@ import mcts
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--network_depth", type=int, default=2)
     p.add_argument("--network_width", type=int, default=64)
     p.add_argument("--num_episodes", type=int, default=20)
@@ -147,6 +147,8 @@ def main():
 
             log_episode_metrics(env, traj, env_steps, ep)
 
+    eqx.tree_serialise_leaves("data/model.eqx", model)
+    eqx.tree_serialise_leaves("data/buffer.eqx", buffer)
     wandb.finish()
 
 
