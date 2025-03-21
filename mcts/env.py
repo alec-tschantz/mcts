@@ -34,12 +34,14 @@ class Pong(eqx.Module):
         enemy, player, ball = state[0], state[1], state[2]
 
         player_move = action - 1
+        player_delta = player_move * self.player_speed
         player_y = jnp.clip(
-            player[1] + player_move * self.player_speed,
+            player[1] + player_delta,
             -1.0 + self.paddle_height / 2,
             1.0 - self.paddle_height / 2,
         )
-        player = jnp.array([0.9, player_y, 0.0, 0.0])
+        player_vel = jnp.array([0.0, player_delta])
+        player = jnp.array([0.9, player_y, player_vel[0], player_vel[1]])
 
         delta = ball[1] - enemy[1]
         deadzone = 0.05
@@ -51,7 +53,8 @@ class Pong(eqx.Module):
             -1.0 + self.paddle_height / 2,
             1.0 - self.paddle_height / 2,
         )
-        enemy = jnp.array([-0.9, enemy_y, 0.0, 0.0])
+        enemy_vel = jnp.array([0.0, enemy_move])
+        enemy = jnp.array([-0.9, enemy_y, enemy_vel[0], enemy_vel[1]])
 
         ball_pos = ball[:2]
         ball_vel = ball[2:]

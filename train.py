@@ -15,27 +15,23 @@ from jax import random as jr
 from jax import vmap, lax
 
 import mcts
-from models import test, phys
+from models import rslds
 
 store = {
-    "test": {
-        "model": test.Test,
-        "loss_fn": test.loss_fn,
-        "rollout_fn": test.rollout_fn,
-    },
-    "phys": {
-        "model": phys.Phys,            
-        "loss_fn": phys.loss_fn,
-        "rollout_fn": phys.rollout_fn,
+    "rslds": {
+        "model": rslds.RSLDS,
+        "loss_fn": rslds.loss_fn,
+        "figure_fn": rslds.figure_fn,
     },
 }
+
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--name", type=str, default="phys")
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--steps", type=int, default=10)
+    p.add_argument("--name", type=str, default="rslds")
+    p.add_argument("--batch_size", type=int, default=128)
+    p.add_argument("--steps", type=int, default=30)
     p.add_argument("--rollout_steps", type=int, default=30)
     p.add_argument("--learning_rate", type=float, default=3e-4)
     p.add_argument("--num_train_epochs", type=int, default=100)
@@ -44,37 +40,16 @@ def parse_args():
     return p.parse_args()
 
 
-def log_metrics(train_aux, test_aux, train_fig, test_fig):
+def log_metrics(train_aux, test_aux, train_figs, test_figs):
     wandb.log(
         {
             **{f"{k}": float(v) for k, v in train_aux.items()},
             **{f"{k}": float(v) for k, v in test_aux.items()},
-            "train_rollout": wandb.Image(train_fig),
-            "test_rollout": wandb.Image(test_fig),
+            **{f"train_{k}": wandb.Image(v) for k, v in train_figs.items()},
+            **{f"test_{k}": wandb.Image(v) for k, v in test_figs.items()},
         }
     )
-    plt.close(train_fig)
-    plt.close(test_fig)
-
-
-def create_figure(true_obs, pred_obs):
-    B, T, O, D = true_obs.shape
-    b = 0
-
-    fig, axes = plt.subplots(O, D, figsize=(D * 2, O * 2), constrained_layout=True)
-
-    for o in range(O):
-        for d in range(D):
-            ax = axes[o, d]
-            ax.plot(true_obs[b, :, o, d], color="black", linewidth=1, label="True")
-            ax.plot(
-                pred_obs[b, :, o, d],
-                color="red",
-                linestyle="--",
-                linewidth=1,
-                label="Pred",
-            )
-    return fig
+    plt.close("all")
 
 
 def sample_test_data(test_buffer, key, batch_size, steps, num_batches):
@@ -120,10 +95,10 @@ def main():
 
     key, subkey = jr.split(key)
     loss_fn = store[args.name]["loss_fn"]
-    rollout_fn = store[args.name]["rollout_fn"]
+    figure_fn = store[args.name]["figure_fn"]
     dynamics = store[args.name]["model"]((3, 4), 3, subkey)
 
-    optim = optax.adam(args.learning_rate)
+    optim = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(args.learning_rate))
     opt_state = optim.init(eqx.filter(dynamics, eqx.is_array))
 
     for epoch in range(args.num_train_epochs):
@@ -166,15 +141,11 @@ def main():
             args.num_test_batches,
         )
 
-        rollout_batch = rollout_test_batches[0]
-        pred_test_obs = rollout_fn(subkey, dynamics, rollout_batch)
-        test_fig = create_figure(rollout_batch.obs, pred_test_obs)
+        key, k1, k2 = jr.split(key, 3)
+        train_figs = figure_fn(k1, dynamics, rollout_train_batches[0])
+        test_figs = figure_fn(k2, dynamics, rollout_test_batches[0])
 
-        rollout_batch = rollout_train_batches[0]
-        pred_train_obs = rollout_fn(subkey, dynamics, rollout_batch)
-        train_fig = create_figure(rollout_batch.obs, pred_train_obs)
-
-        log_metrics(train_aux, test_aux, train_fig, test_fig)
+        log_metrics(train_aux, test_aux, train_figs, test_figs)
         eqx.tree_serialise_leaves(f"data/{args.name}.eqx", dynamics)
 
 
