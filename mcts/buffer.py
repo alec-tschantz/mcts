@@ -52,7 +52,6 @@ class Buffer(eqx.Module):
             }
             batch.append(Transition(**sliced))
 
-
         stacked = {
             f: jnp.stack([getattr(t, f) for t in batch])
             for f in batch[0].__annotations__
@@ -65,3 +64,26 @@ class Buffer(eqx.Module):
 
     def __len__(self):
         return len(self.storage)
+
+
+def train_test_split(buffer: Buffer, rng_key: jr.PRNGKey, ratio: float = 0.2):
+    total = len(buffer.storage)
+    indices = jnp.arange(total)
+    shuffled_indices = jr.permutation(rng_key, indices)
+
+    split_idx = int(total * (1 - ratio))
+    train_indices = shuffled_indices[:split_idx]
+    test_indices = shuffled_indices[split_idx:]
+
+    train_buffer = Buffer()
+    test_buffer = Buffer()
+
+    for idx in train_indices:
+        idx = int(idx)
+        train_buffer.add(buffer.storage[idx], buffer.weights[idx])
+
+    for idx in test_indices:
+        idx = int(idx)
+        test_buffer.add(buffer.storage[idx], buffer.weights[idx])
+
+    return train_buffer, test_buffer

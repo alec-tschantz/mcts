@@ -1,3 +1,4 @@
+import pickle
 import wandb
 import argparse
 import numpy as np
@@ -148,7 +149,8 @@ def main():
             log_episode_metrics(env, traj, env_steps, ep)
 
         eqx.tree_serialise_leaves("data/model.eqx", model)
-        eqx.tree_serialise_leaves("data/buffer.eqx", buffer)
+        with open("data/buffer.pkl", "wb") as f:
+            pickle.dump(buffer, f)
     wandb.finish()
 
 
