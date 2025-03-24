@@ -14,6 +14,7 @@ from jax import random as jr
 from jax import vmap, lax
 
 import mcts
+from mcts import policy
 
 
 def parse_args():
@@ -88,7 +89,7 @@ def rollout_episode(obs, env, model, rng_key, num_steps, **kwargs):
 
 @eqx.filter_jit
 def train_step(model, env, batch, optim, opt_state, rng_key):
-    (loss, aux), grads = eqx.filter_value_and_grad(mcts.loss_fn, has_aux=True)(
+    (loss, aux), grads = eqx.filter_value_and_grad(policy.loss_fn, has_aux=True)(
         model, batch, env, rng_key
     )
     updates, opt_state = optim.update(grads, opt_state, model)
@@ -111,7 +112,7 @@ def main():
     buffer = mcts.Buffer()
 
     key, subkey = jr.split(key)
-    model = mcts.Policy(
+    model = policy.Policy(
         int(np.prod(env.observation_shape)),
         env.action_shape,
         args.network_width,
