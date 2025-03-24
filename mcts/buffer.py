@@ -22,9 +22,12 @@ class Buffer(eqx.Module):
         self.storage.append(transition)
         self.weights.append(weight)
 
-    def sample(self, rng_key, batch_size, steps):
-        weights = jnp.array(self.weights)
-        norm_weights = weights / jnp.sum(weights)
+    def sample(self, rng_key, batch_size, steps, weighted: bool = True):
+        if weighted and len(self.weights) > 0:
+            weights = jnp.array(self.weights)
+            norm_weights = weights / jnp.sum(weights)
+        else:
+            norm_weights = jnp.ones(len(self.storage)) / len(self.storage)
 
         rng_key, subkey = jr.split(rng_key)
         indices = jr.choice(
@@ -40,8 +43,11 @@ class Buffer(eqx.Module):
 
             valid_range = T - steps + 1
 
-            trans_weights = traj.weight[:valid_range]
-            norm_trans_weights = trans_weights / (jnp.sum(trans_weights) + 1e-6)
+            if weighted:
+                trans_weights = traj.weight[:valid_range]
+                norm_trans_weights = trans_weights / (jnp.sum(trans_weights) + 1e-6)
+            else:
+                norm_trans_weights = jnp.ones(valid_range) / valid_range
 
             rng_key, subkey = jr.split(rng_key)
             start_idx = jr.choice(subkey, valid_range, (), p=norm_trans_weights)
@@ -51,6 +57,9 @@ class Buffer(eqx.Module):
                 for f in traj.__annotations__
             }
             batch.append(Transition(**sliced))
+
+        if len(batch) == 0:
+            raise ValueError("No valid trajectories long enough for sampling.")
 
         stacked = {
             f: jnp.stack([getattr(t, f) for t in batch])

@@ -48,7 +48,7 @@ def sample_test_data(test_buffer, key, batch_size, steps, num_batches):
     batches = []
     for _ in range(num_batches):
         key, subkey = jr.split(key)
-        batch = test_buffer.sample(subkey, batch_size, steps)
+        batch = test_buffer.sample(subkey, batch_size, steps, weighted=False)
         batches.append(batch)
     return batches
 
@@ -88,7 +88,7 @@ def evaluate(key, model, batch, rollout_len, num_samples=5):
 
     total_len = 2 * rollout_len
     start_idx = np.random.randint(0, obs_seq.shape[0] - total_len)
-    
+
     obs_slice = obs_seq[start_idx : start_idx + total_len]
     act_slice = act_seq[start_idx : start_idx + total_len]
     warm_obs, warm_act = obs_slice[:rollout_len], act_slice[:rollout_len]
@@ -187,7 +187,7 @@ def main():
 
     for epoch in range(args.num_train_epochs):
         key, subkey = jr.split(key)
-        batch = train_buffer.sample(subkey, args.batch_size, args.steps)
+        batch = train_buffer.sample(subkey, args.batch_size, args.steps, weighted=False)
 
         key, subkey = jr.split(key)
         model, opt_state, train_aux = train_step(subkey, model, batch, optim, opt_state)
@@ -197,34 +197,37 @@ def main():
             test_buffer, subkey, args.batch_size, args.steps, args.num_test_batches
         )
 
-        key, subkey = jr.split(key)
-        test_aux = test_step(subkey, model, test_batches)
+        if epoch % 10 == 0:
+            key, subkey = jr.split(key)
+            test_aux = test_step(subkey, model, test_batches)
 
-        key, subkey = jr.split(key)
-        rollout_train_batches = sample_test_data(
-            train_buffer,
-            subkey,
-            args.batch_size,
-            2 * args.rollout_steps + 1,
-            args.num_test_batches,
-        )
+            key, subkey = jr.split(key)
+            rollout_train_batches = sample_test_data(
+                train_buffer,
+                subkey,
+                args.batch_size,
+                2 * args.rollout_steps + 1,
+                args.num_test_batches,
+            )
 
-        key, subkey = jr.split(key)
-        rollout_test_batches = sample_test_data(
-            test_buffer,
-            subkey,
-            args.batch_size,
-            2 * args.rollout_steps + 1,
-            args.num_test_batches,
-        )
+            key, subkey = jr.split(key)
+            rollout_test_batches = sample_test_data(
+                test_buffer,
+                subkey,
+                args.batch_size,
+                2 * args.rollout_steps + 1,
+                args.num_test_batches,
+            )
 
-        train_figs = evaluate(
-            subkey, model, rollout_train_batches[0], args.rollout_steps
-        )
-        test_figs = evaluate(subkey, model, rollout_test_batches[0], args.rollout_steps)
+            train_figs = evaluate(
+                subkey, model, rollout_train_batches[0], args.rollout_steps
+            )
+            test_figs = evaluate(
+                subkey, model, rollout_test_batches[0], args.rollout_steps
+            )
 
-        log_metrics(train_aux, test_aux, train_figs, test_figs)
-        eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
+            log_metrics(train_aux, test_aux, train_figs, test_figs)
+            eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
 
 
 if __name__ == "__main__":

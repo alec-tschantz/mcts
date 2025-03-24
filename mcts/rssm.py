@@ -132,7 +132,7 @@ def forward_model(
     out_seq = vmap(lambda s: forward_decoder(model.decoder, s))(post_seq)
     return out_seq, post_seq, prior_seq
 
-
+@eqx.filter_jit
 def rollout(
     prior: Prior,
     post: Posterior,
@@ -154,7 +154,7 @@ def rollout(
     )
     return post_seq, prior_seq
 
-
+@eqx.filter_jit
 def rollout_prior(
     prior: Prior, init_post: State, action_seq: Array, key: jr.PRNGKey
 ) -> Array:
