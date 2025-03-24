@@ -65,6 +65,22 @@ class QwenModel(eqx.Module):
     reward_dim: int
 
 
+def loss_fn(model, prev_obs, prev_actions, next_obs, next_rewards, key):
+    B, T, K, D = prev_obs.shape
+    prev_obs = prev_obs.reshape((B, T, K * D))
+
+    output = forward(model, prev_obs, prev_actions, key=key, inference=False)
+    pred_next_obs, pred_next_rewards = (
+        output[..., : -model.reward_dim],
+        output[..., -model.reward_dim :],
+    )
+    pred_next_obs = pred_next_obs.reshape((B, T, K, D))
+
+    obs_loss = jnp.mean((pred_next_obs - next_obs) ** 2)
+    reward_loss = jnp.mean((pred_next_rewards - next_rewards) ** 2)
+    return obs_loss + reward_loss, {"obs_loss": obs_loss, "reward_loss": reward_loss}
+
+
 def forward_linear(l: Linear, x: Array) -> Array:
     y = jnp.dot(x, l.weight.T)
     return y + l.bias if l.bias is not None else y
