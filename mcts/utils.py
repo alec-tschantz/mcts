@@ -48,3 +48,24 @@ def compute_returns(transition: Transition, steps=10, gamma=0.99, alpha=0.5):
         action_probs=transition.action_probs,
         weight=out_weight,
     )
+
+
+def map_class_to_value(
+    bin_idx: int, value_dim: int, value_min: float, value_max: float
+) -> float:
+    bin_width = (value_max - value_min) / float(value_dim)
+    return value_min + (bin_idx + 0.5) * bin_width
+
+
+def map_value_to_class(
+    value: float, value_dim: int, value_min: float, value_max: float
+) -> int:
+    v_clamped = jnp.clip(value, value_min, value_max)
+    bin_width = (value_max - value_min) / float(value_dim)
+    idx = (v_clamped - value_min) // bin_width
+    return jnp.minimum(idx.astype(int), value_dim - 1)
+
+
+def map_reward_to_class(r, offset, dim):
+    idx = jnp.clip(r + offset, 0, dim - 1)
+    return idx.astype(int)

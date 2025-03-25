@@ -20,22 +20,22 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--num_episodes", type=int, default=50)
-    p.add_argument("--num_warmup_episodes", type=int, default=5)
-    p.add_argument("--num_episode_steps", type=int, default=500)
+    p.add_argument("--num_warmup_episodes", type=int, default=0)
+    p.add_argument("--num_episode_steps", type=int, default=200)
     p.add_argument("--num_train_epochs", type=int, default=50)
-    p.add_argument("--num_simulations", type=int, default=100)
+    p.add_argument("--num_simulations", type=int, default=10)
     p.add_argument("--max_depth", type=int, default=10)
     p.add_argument("--gumbel_scale", type=float, default=1.0)
-    p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=50)
-    p.add_argument("--seq_size", type=int, default=50)
+    p.add_argument("--learning_rate", type=float, default=1e-4)
+    p.add_argument("--batch_size", type=int, default=64)
+    p.add_argument("--seq_size", type=int, default=32)
     p.add_argument("--return_steps", type=int, default=10)
-    p.add_argument("--rssm_embed_dim", type=int, default=64)
-    p.add_argument("--rssm_state_dim", type=int, default=64)
+    p.add_argument("--rssm_embed_dim", type=int, default=128)
+    p.add_argument("--rssm_state_dim", type=int, default=128)
     p.add_argument("--rssm_num_discrete", type=int, default=16)
     p.add_argument("--rssm_discrete_dim", type=int, default=16)
-    p.add_argument("--rssm_hidden_dim", type=int, default=128)
-    p.add_argument("--policy_hidden_dim", type=int, default=128)
+    p.add_argument("--rssm_hidden_dim", type=int, default=200)
+    p.add_argument("--policy_hidden_dim", type=int, default=200)
     p.add_argument("--policy_depth", type=int, default=2)
     p.add_argument("--name", type=str, default="muzero-run")
     return p.parse_args()
@@ -150,10 +150,10 @@ def main():
         if ep >= args.num_warmup_episodes:
             for _ in range(args.num_train_epochs):
                 key, k1, k2 = jr.split(key, 3)
-                batch = buffer.sample(k1, batch_size=args.batch_size, steps=args.seq_size)
-                model, opt_state, aux = train_step(
-                    model, batch, optim, opt_state, k2
+                batch = buffer.sample(
+                    k1, batch_size=args.batch_size, steps=args.seq_size
                 )
+                model, opt_state, aux = train_step(model, batch, optim, opt_state, k2)
                 train_steps += 1
                 log_train_metrics(aux, train_steps)
 

@@ -13,10 +13,7 @@ from mcts.rssm import RSSM, State
 from mcts import policy
 from mcts.models import Model
 
-
-def map_reward_to_class(r, offset, dim):
-    idx = jnp.clip(r + offset, 0, dim - 1)
-    return idx.astype(int)
+from . import utils
 
 
 def l2_loss(model: eqx.Module) -> jnp.ndarray:
@@ -75,16 +72,27 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
         val_logits_t, pol_logits_t = vmap(policy.forward, in_axes=(None, 0))(
             model.policy, policy_inp_t
         )
-        v_loss_t = jnp.mean((val_logits_t - batch.returns[:, t]) ** 2)
+
+        val_idx_t = vmap(
+            lambda r: utils.map_value_to_class(
+                r,
+                model.policy.value_dim,
+                model.policy.value_min,
+                model.policy.value_max,
+            )
+        )(batch.returns[:, t])
+        val_1hot_t = nn.one_hot(val_idx_t, model.policy.value_dim)
+        value_ce_t = jnp.mean(optax.softmax_cross_entropy(val_logits_t, val_1hot_t))
+
         pi_loss_t = jnp.mean(
             optax.softmax_cross_entropy(pol_logits_t, batch.action_probs[:, t])
         )
         prior_features = jnp.concatenate(
             [prior_t.sample.reshape(B, -1), prior_t.state], axis=-1
         )
-        rew_logits_t = vmap(model.reward_head)(prior_features) 
+        rew_logits_t = vmap(model.reward_head)(prior_features)
         reward_t = batch.reward[:, t]
-        reward_idx_t = map_reward_to_class(
+        reward_idx_t = utils.map_reward_to_class(
             reward_t, model.reward_offset, model.reward_dim
         )
         reward_1hot_t = nn.one_hot(reward_idx_t, model.reward_dim)
@@ -94,7 +102,7 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
             rng,
             sum_mse + mse_t,
             sum_kl + kl_t,
-            sum_v + v_loss_t,
+            sum_v + value_ce_t,
             sum_pi + pi_loss_t,
             sum_r + ce_t,
         ), None

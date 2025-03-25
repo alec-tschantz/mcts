@@ -7,8 +7,7 @@ from jax import numpy as jnp
 from jax import random as jr
 from jax import nn, vmap
 
-from . import policy
-from . import rssm
+from . import policy, rssm, utils
 
 
 class Model(eqx.Module):
@@ -32,17 +31,17 @@ class Model(eqx.Module):
         key: jr.PRNGKey,
         reward_dim: int = 3,
         reward_offset: int = 1,
+        value_dim: int = 20,
     ):
         key_policy, key_rssm, key_reward = jr.split(key, 3)
-
         feature_dim = rssm_state_dim + (rssm_num_discrete * rssm_discrete_dim)
-
         self.policy = policy.init_policy(
             feature_dim=feature_dim,
             action_dim=action_dim,
             width=policy_hidden_dim,
             depth=policy_depth,
             key=key_policy,
+            value_dim=value_dim,
         )
         self.rssm = rssm.init_model(
             obs_dim=obs_dim,
@@ -56,12 +55,11 @@ class Model(eqx.Module):
         )
         self.reward_head = eqx.nn.MLP(
             in_size=feature_dim,
-            out_size=reward_dim,  # now outputs logits for reward_dim classes
+            out_size=reward_dim,
             width_size=policy_hidden_dim,
             depth=policy_depth,
             key=key_reward,
         )
-
         self.reward_dim = reward_dim
         self.reward_offset = reward_offset
 
@@ -69,12 +67,20 @@ class Model(eqx.Module):
 def root_fn(key: jr.PRNGKey, model: Model, post: rssm.State) -> mctx.RootFnOutput:
     flat_sample = vmap(lambda x: x.flatten())(post.sample)
     features = jnp.concatenate([flat_sample, post.state], axis=-1)
-    value, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
+    value_logits, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
         model.policy, features
+    )
+    val_probs = nn.softmax(value_logits, axis=-1)
+    val_bin = jnp.argmax(val_probs, axis=-1)
+    continuous_val = vmap(utils.map_class_to_value, in_axes=(0, None, None, None))(
+        val_bin,
+        model.policy.value_dim,
+        model.policy.value_min,
+        model.policy.value_max,
     )
     return mctx.RootFnOutput(
         prior_logits=policy_logits,
-        value=value.squeeze(-1),
+        value=continuous_val,
         embedding=post,
     )
 
@@ -95,8 +101,17 @@ def recurrent_fn(
     flat_sample = vmap(lambda x: x.flatten())(prior.sample)
     features = jnp.concatenate([flat_sample, prior.state], axis=-1)
 
-    value, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
+    value_logits, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
         model.policy, features
+    )
+
+    val_probs = nn.softmax(value_logits, axis=-1)
+    val_bin = jnp.argmax(val_probs, axis=-1)
+    continuous_val = vmap(utils.map_class_to_value, in_axes=(0, None, None, None))(
+        val_bin,
+        model.policy.value_dim,
+        model.policy.value_min,
+        model.policy.value_max,
     )
 
     rew_logits = vmap(model.reward_head)(features)
@@ -111,7 +126,7 @@ def recurrent_fn(
             reward=predicted_reward.astype(jnp.float32),
             discount=discount,
             prior_logits=policy_logits,
-            value=value.squeeze(-1),
+            value=continuous_val,
         ),
         prior,
     )
