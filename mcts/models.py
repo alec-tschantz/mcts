@@ -141,14 +141,25 @@ def action_fn(
     num_simulations: int = 500,
 ):
     root = root_fn(key, model, post)
-    out = mctx.gumbel_muzero_policy(
+    # out = mctx.gumbel_muzero_policy(
+    #     params=model,
+    #     rng_key=key,
+    #     root=root,
+    #     recurrent_fn=recurrent_fn,
+    #     num_simulations=num_simulations,
+    #     max_depth=max_depth,
+    #     gumbel_scale=gumbel_scale,
+    # )
+
+    out = mctx.muzero_policy(
         params=model,
         rng_key=key,
         root=root,
         recurrent_fn=recurrent_fn,
         num_simulations=num_simulations,
         max_depth=max_depth,
-        gumbel_scale=gumbel_scale,
+        temperature=1.0,
+        dirichlet_fraction=1.0,
     )
     return out.action, out.action_weights, root.value
 

@@ -23,7 +23,7 @@ def l2_loss(model: eqx.Module) -> jnp.ndarray:
 
 
 def kl_loss(
-    prior_logits: Array, post_logits: Array, free_nats: float = 0.0, alpha: float = 0.8
+    prior_logits: Array, post_logits: Array, free_nats: float = 1.0, alpha: float = 0.8
 ) -> Array:
     kl_lhs = optax.losses.kl_divergence_with_log_targets(
         lax.stop_gradient(post_logits), prior_logits
