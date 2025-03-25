@@ -14,6 +14,11 @@ from mcts import policy
 from mcts.models import Model
 
 
+def map_reward_to_class(r, offset, dim):
+    idx = jnp.clip(r + offset, 0, dim - 1)
+    return idx.astype(int)
+
+
 def l2_loss(model: eqx.Module) -> jnp.ndarray:
     return 0.5 * sum(
         jnp.sum(jnp.square(p)) for p in jtu.tree_leaves(eqx.filter(model, eqx.is_array))
@@ -77,9 +82,13 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
         prior_features = jnp.concatenate(
             [prior_t.sample.reshape(B, -1), prior_t.state], axis=-1
         )
-        rew_pred_t = vmap(model.reward_head)(prior_features).squeeze(-1)
-        real_rew_t = batch.reward[:, t]
-        r_loss_t = jnp.mean((rew_pred_t - real_rew_t) ** 2)
+        rew_logits_t = vmap(model.reward_head)(prior_features) 
+        reward_t = batch.reward[:, t]
+        reward_idx_t = map_reward_to_class(
+            reward_t, model.reward_offset, model.reward_dim
+        )
+        reward_1hot_t = nn.one_hot(reward_idx_t, model.reward_dim)
+        ce_t = jnp.mean(optax.softmax_cross_entropy(rew_logits_t, reward_1hot_t))
         return (
             post_t,
             rng,
@@ -87,7 +96,7 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
             sum_kl + kl_t,
             sum_v + v_loss_t,
             sum_pi + pi_loss_t,
-            sum_r + r_loss_t,
+            sum_r + ce_t,
         ), None
 
     init_carry = (init_post, key, 0.0, 0.0, 0.0, 0.0, 0.0)

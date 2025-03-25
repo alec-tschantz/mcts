@@ -19,9 +19,7 @@ from mcts import models, rssm, losses, utils
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--network_depth", type=int, default=2)
-    p.add_argument("--network_width", type=int, default=64)
-    p.add_argument("--num_episodes", type=int, default=20)
+    p.add_argument("--num_episodes", type=int, default=50)
     p.add_argument("--num_warmup_episodes", type=int, default=5)
     p.add_argument("--num_episode_steps", type=int, default=500)
     p.add_argument("--num_train_epochs", type=int, default=50)
@@ -29,15 +27,16 @@ def parse_args():
     p.add_argument("--max_depth", type=int, default=10)
     p.add_argument("--gumbel_scale", type=float, default=1.0)
     p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--seq_size", type=int, default=32)
+    p.add_argument("--batch_size", type=int, default=50)
+    p.add_argument("--seq_size", type=int, default=50)
     p.add_argument("--return_steps", type=int, default=10)
-    p.add_argument("--rssm_embed_dim", type=int, default=128)
-    p.add_argument("--rssm_state_dim", type=int, default=200)
-    p.add_argument("--rssm_num_discrete", type=int, default=8)
-    p.add_argument("--rssm_discrete_dim", type=int, default=8)
-    p.add_argument("--rssm_hidden_dim", type=int, default=200)
-    p.add_argument("--policy_hidden_dim", type=int, default=200)
+    p.add_argument("--rssm_embed_dim", type=int, default=64)
+    p.add_argument("--rssm_state_dim", type=int, default=64)
+    p.add_argument("--rssm_num_discrete", type=int, default=16)
+    p.add_argument("--rssm_discrete_dim", type=int, default=16)
+    p.add_argument("--rssm_hidden_dim", type=int, default=128)
+    p.add_argument("--policy_hidden_dim", type=int, default=128)
+    p.add_argument("--policy_depth", type=int, default=2)
     p.add_argument("--name", type=str, default="muzero-run")
     return p.parse_args()
 
@@ -130,7 +129,7 @@ def main():
         rssm_discrete_dim=args.rssm_discrete_dim,
         rssm_hidden_dim=args.rssm_hidden_dim,
         policy_hidden_dim=args.policy_hidden_dim,
-        policy_depth=args.network_depth,
+        policy_depth=args.policy_depth,
         key=subkey,
     )
     optim = optax.adam(args.learning_rate)

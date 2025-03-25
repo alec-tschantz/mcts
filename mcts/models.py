@@ -15,6 +15,8 @@ class Model(eqx.Module):
     policy: policy.Policy
     rssm: rssm.RSSM
     reward_head: eqx.nn.MLP
+    reward_dim: int
+    reward_offset: int
 
     def __init__(
         self,
@@ -28,9 +30,13 @@ class Model(eqx.Module):
         policy_hidden_dim: int,
         policy_depth: int,
         key: jr.PRNGKey,
+        reward_dim: int = 3,
+        reward_offset: int = 1,
     ):
         key_policy, key_rssm, key_reward = jr.split(key, 3)
+
         feature_dim = rssm_state_dim + (rssm_num_discrete * rssm_discrete_dim)
+
         self.policy = policy.init_policy(
             feature_dim=feature_dim,
             action_dim=action_dim,
@@ -50,11 +56,14 @@ class Model(eqx.Module):
         )
         self.reward_head = eqx.nn.MLP(
             in_size=feature_dim,
-            out_size=1,
+            out_size=reward_dim,  # now outputs logits for reward_dim classes
             width_size=policy_hidden_dim,
             depth=policy_depth,
             key=key_reward,
         )
+
+        self.reward_dim = reward_dim
+        self.reward_offset = reward_offset
 
 
 def root_fn(key: jr.PRNGKey, model: Model, post: rssm.State) -> mctx.RootFnOutput:
@@ -77,21 +86,30 @@ def recurrent_fn(
     embedding: rssm.State,
 ) -> tuple[mctx.RecurrentFnOutput, rssm.State]:
     B = action.shape[0]
-    action = nn.one_hot(action, model.rssm.action_dim)
+    action_1hot = nn.one_hot(action, model.rssm.action_dim)
+
     prior = vmap(lambda emb, act, k: rssm.forward_prior(model.rssm.prior, emb, act, k))(
-        embedding, action, jr.split(key, B)
+        embedding, action_1hot, jr.split(key, B)
     )
+
     flat_sample = vmap(lambda x: x.flatten())(prior.sample)
     features = jnp.concatenate([flat_sample, prior.state], axis=-1)
+
     value, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
         model.policy, features
     )
-    rewards = vmap(model.reward_head)(features)
-    discounts = jnp.ones((B,))
+
+    rew_logits = vmap(model.reward_head)(features)
+    rew_probs = nn.softmax(rew_logits, axis=-1)
+    rew_argmax = jnp.argmax(rew_probs, axis=-1)
+    predicted_reward = rew_argmax - model.reward_offset
+
+    discount = jnp.ones((B,))
+
     return (
         mctx.RecurrentFnOutput(
-            reward=rewards.squeeze(-1),
-            discount=discounts,
+            reward=predicted_reward.astype(jnp.float32),
+            discount=discount,
             prior_logits=policy_logits,
             value=value.squeeze(-1),
         ),
