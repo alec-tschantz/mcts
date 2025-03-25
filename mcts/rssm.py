@@ -37,50 +37,20 @@ class Decoder(eqx.Module):
     norm2: eqx.nn.RMSNorm
 
 
-class Model(eqx.Module):
+class RSSM(eqx.Module):
     prior: Prior
     posterior: Posterior
     encoder: Encoder
     decoder: Decoder
     logit_dim: int
     state_dim: int
+    action_dim: int
 
 
 class State(NamedTuple):
     logits: Array
     sample: Array
     state: Array
-
-
-@eqx.filter_jit
-def loss_fn(params, obs_seq, action_seq, key):
-    _forward = lambda o, a, k: forward_model(params, o, a, k)
-    subkeys = jr.split(key, obs_seq.shape[0])
-    pred_seq, post, prior = vmap(_forward)(obs_seq, action_seq, subkeys)
-    _mse_loss = mse_loss(obs_seq, pred_seq)
-    _kl_loss = kl_loss(post.logits, prior.logits)
-    return _mse_loss + _kl_loss, {"mse_loss": _mse_loss, "kl_loss": _kl_loss}
-
-
-def kl_loss(
-    prior_logits: Array, post_logits: Array, free_nats: float = 0.0, alpha: float = 0.8
-) -> Array:
-    kl_lhs = optax.losses.kl_divergence_with_log_targets(
-        lax.stop_gradient(post_logits), prior_logits
-    ).sum(axis=-1)
-    kl_rhs = optax.losses.kl_divergence_with_log_targets(
-        post_logits, lax.stop_gradient(prior_logits)
-    ).sum(axis=-1)
-
-    kl_lhs, kl_rhs = jnp.mean(kl_lhs), jnp.mean(kl_rhs)
-    if free_nats > 0.0:
-        kl_lhs = jnp.maximum(kl_lhs, free_nats)
-        kl_rhs = jnp.maximum(kl_rhs, free_nats)
-    return (alpha * kl_lhs) + ((1 - alpha) * kl_rhs)
-
-
-def mse_loss(out_seq: Array, obs_seq: Array) -> Array:
-    return jnp.mean(jnp.sum((out_seq - obs_seq) ** 2, axis=-1))
 
 
 def forward_prior(
@@ -122,7 +92,7 @@ def forward_decoder(decoder: Decoder, post: State) -> Array:
 
 
 def forward_model(
-    model: Model, obs_seq: Array, action_seq: Array, key: jr.PRNGKey
+    model: RSSM, obs_seq: Array, action_seq: Array, key: jr.PRNGKey
 ) -> Tuple[Array, State, State]:
     obs_emb_seq = vmap(lambda o: forward_encoder(model.encoder, o))(obs_seq)
     init_post = init_post_state(model)
@@ -131,6 +101,7 @@ def forward_model(
     )
     out_seq = vmap(lambda s: forward_decoder(model.decoder, s))(post_seq)
     return out_seq, post_seq, prior_seq
+
 
 @eqx.filter_jit
 def rollout(
@@ -153,6 +124,7 @@ def rollout(
         step, init_post, (keys, obs_emb_seq, action_seq)
     )
     return post_seq, prior_seq
+
 
 @eqx.filter_jit
 def rollout_prior(
@@ -181,7 +153,7 @@ def sample_logits(
     return dist_logits, st_sample
 
 
-def init_post_state(model: Model, batch_shape: tuple = ()) -> State:
+def init_post_state(model: RSSM, batch_shape: tuple = ()) -> State:
     post = model.posterior
     return State(
         jnp.zeros(batch_shape + (post.num_discrete, post.discrete_dim)),
@@ -199,10 +171,10 @@ def init_model(
     discrete_dim: int,
     hidden_dim: int,
     key: jr.PRNGKey,
-) -> Model:
+) -> RSSM:
 
     k1, k2, k3, k4 = jr.split(key, 4)
-    return Model(
+    return RSSM(
         prior=init_prior(
             action_dim, num_discrete, discrete_dim, state_dim, hidden_dim, k1
         ),
@@ -215,6 +187,7 @@ def init_model(
         ),
         logit_dim=num_discrete * discrete_dim,
         state_dim=state_dim,
+        action_dim=action_dim,
     )
 
 
