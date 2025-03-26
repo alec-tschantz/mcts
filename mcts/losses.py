@@ -44,7 +44,8 @@ def mse_loss(pred: Array, target: Array) -> Array:
 
 @eqx.filter_jit
 def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
-    batch_obs = batch.obs[..., :2]
+    # batch_obs = batch.obs[..., :2]
+    batch_obs = batch.obs
     B, T, K, D = batch_obs.shape
     batch_obs = batch_obs.reshape(B, T, K * D)
     obs_emb = vmap(
@@ -64,14 +65,15 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
             model.rssm.posterior, obs_emb[:, t], prior_t, jr.split(k2, B)
         )
         rec_obs_t = vmap(forward_decoder, in_axes=(None, 0))(model.rssm.decoder, post_t)
+
         real_obs_t = batch_obs[:, t]
         mse_t = jnp.mean(jnp.sum((rec_obs_t - real_obs_t) ** 2, axis=-1))
         kl_t = jnp.mean(vmap(kl_loss)(prior_t.logits, post_t.logits))
+
         sample_flat_t = post_t.sample.reshape(B, -1)
         policy_inp_t = jnp.concatenate([sample_flat_t, post_t.state], axis=-1)
-        val_logits_t, pol_logits_t = vmap(policy.forward, in_axes=(None, 0))(
-            model.policy, policy_inp_t
-        )
+        vmap_policy = vmap(policy.forward, in_axes=(None, 0))
+        val_logits_t, pol_logits_t = vmap_policy(model.policy, policy_inp_t)
 
         val_idx_t = vmap(
             lambda r: utils.map_value_to_class(
@@ -90,6 +92,7 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
         prior_features = jnp.concatenate(
             [prior_t.sample.reshape(B, -1), prior_t.state], axis=-1
         )
+
         rew_logits_t = vmap(model.reward_head)(prior_features)
         reward_t = batch.reward[:, t]
         reward_idx_t = utils.map_reward_to_class(

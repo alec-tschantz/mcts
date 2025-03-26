@@ -24,7 +24,7 @@ def init_policy(
     width: int,
     depth: int,
     key: jr.PRNGKey,
-    value_dim: int = 20,
+    value_dim: int = 8,
     value_min: float = -1.0,
     value_max: float = 1.0,
 ) -> Policy:

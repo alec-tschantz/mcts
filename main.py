@@ -19,23 +19,23 @@ from mcts import models, rssm, losses, utils
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--num_episodes", type=int, default=50)
-    p.add_argument("--num_warmup_episodes", type=int, default=5)
-    p.add_argument("--num_episode_steps", type=int, default=200)
-    p.add_argument("--num_train_epochs", type=int, default=100)
-    p.add_argument("--num_simulations", type=int, default=100)
+    p.add_argument("--num_episodes", type=int, default=100)
+    p.add_argument("--num_warmup_episodes", type=int, default=4)
+    p.add_argument("--num_episode_steps", type=int, default=500)
+    p.add_argument("--num_train_epochs", type=int, default=50)
+    p.add_argument("--num_simulations", type=int, default=300)
     p.add_argument("--max_depth", type=int, default=20)
     p.add_argument("--gumbel_scale", type=float, default=1.0)
-    p.add_argument("--learning_rate", type=float, default=1e-4)
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--seq_size", type=int, default=32)
+    p.add_argument("--learning_rate", type=float, default=3e-4)
+    p.add_argument("--batch_size", type=int, default=50)
+    p.add_argument("--seq_size", type=int, default=50)
     p.add_argument("--return_steps", type=int, default=10)
-    p.add_argument("--rssm_embed_dim", type=int, default=128)
-    p.add_argument("--rssm_state_dim", type=int, default=128)
+    p.add_argument("--rssm_embed_dim", type=int, default=64)
+    p.add_argument("--rssm_state_dim", type=int, default=32)
     p.add_argument("--rssm_num_discrete", type=int, default=16)
     p.add_argument("--rssm_discrete_dim", type=int, default=16)
-    p.add_argument("--rssm_hidden_dim", type=int, default=200)
-    p.add_argument("--policy_hidden_dim", type=int, default=200)
+    p.add_argument("--rssm_hidden_dim", type=int, default=64)
+    p.add_argument("--policy_hidden_dim", type=int, default=128)
     p.add_argument("--policy_depth", type=int, default=2)
     p.add_argument("--name", type=str, default="muzero-run")
     return p.parse_args()
@@ -66,14 +66,19 @@ def log_train_metrics(aux, train_steps):
 
 
 @eqx.filter_jit
-def rollout_episode(obs, post, env, model, rng_key, num_steps, **kwargs):
+def rollout_episode(
+    obs, post, env, model, rng_key, num_steps, max_depth, gumbel_scale, num_simulations
+):
     _batch = lambda x: jtu.tree_map(lambda x: x[None], x)
-    _process_obs = lambda o: o[..., :2].reshape(-1)
+    # _process_obs = lambda o: o[..., :2].reshape(-1)
+    _process_obs = lambda o: o.reshape(-1)
 
     def scan_step(carry, _):
         obs, post, key = carry
         key, k1, k2, k3 = jr.split(key, 4)
-        action, probs, value = models.action_fn(k1, model, _batch(post))
+        action, probs, value = models.action_fn(
+            k1, model, _batch(post), max_depth, gumbel_scale, num_simulations
+        )
         new_post = models.compute_posterior(
             model, post, _process_obs(obs), action[0], k2
         )
@@ -112,16 +117,16 @@ def main():
     wandb.init(project="muzero", name=args.name)
     wandb.config.update(vars(args))
     key = jr.PRNGKey(args.seed)
-    kwargs = {
-        "max_depth": args.max_depth,
-        "gumbel_scale": args.gumbel_scale,
-        "num_simulations": args.num_simulations,
-    }
+
+    initial_scale = 1.0
+    final_scale = 0.05
+    current_scale = 1.0
+
     env = mcts.Pong()
     buffer = mcts.Buffer()
     key, subkey = jr.split(key)
     model = models.Model(
-        obs_dim=6,
+        obs_dim=12,
         action_dim=env.action_shape,
         rssm_embed_dim=args.rssm_embed_dim,
         rssm_state_dim=args.rssm_state_dim,
@@ -142,11 +147,20 @@ def main():
     for ep in range(args.num_episodes):
         key, subkey = jr.split(key)
         traj, obs, post = rollout_episode(
-            obs, post, env, model, subkey, args.num_episode_steps, **kwargs
+            obs,
+            post,
+            env,
+            model,
+            subkey,
+            args.num_episode_steps,
+            args.max_depth,
+            current_scale,
+            args.num_simulations,
         )
         traj = utils.compute_returns(traj, steps=args.return_steps)
-        env_steps += traj.obs.shape[0]
         buffer.add(traj, jnp.mean(traj.weight))
+        env_steps += traj.obs.shape[0]
+
         if ep >= args.num_warmup_episodes:
             for _ in range(args.num_train_epochs):
                 key, k1, k2 = jr.split(key, 3)
@@ -160,10 +174,14 @@ def main():
             log_episode_metrics(env, traj, env_steps, ep)
             post = rssm.init_post_state(model.rssm)
 
-        eqx.tree_serialise_leaves("data/model.eqx", model)
+        progress = (ep + 1) / args.num_episodes
+        current_scale = initial_scale + progress * (final_scale - initial_scale)
 
-        with open("data/buffer.pkl", "wb") as f:
-            pickle.dump(buffer, f)
+    eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
+
+    with open("data/buffer.pkl", "wb") as f:
+        pickle.dump(buffer, f)
+
     wandb.finish()
 
 
