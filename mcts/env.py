@@ -142,6 +142,7 @@ class Pong(eqx.Module):
         ball_pos = jnp.array([0.0, 0.0])
 
         dirs = jnp.array([[-1, 1], [-1, -1], [1, 1], [1, -1]], dtype=jnp.float32)
+        # dirs = jnp.array([[-1, 1]], dtype=jnp.float32)
         direction = random.randint(rng_key, (), 0, 4)
         ball_vel = dirs[direction] * self.ball_speed
         ball = jnp.concatenate([ball_pos, ball_vel])

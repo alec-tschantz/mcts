@@ -15,26 +15,26 @@ from mcts import models, rssm, losses, utils
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--num_episodes", type=int, default=100)
-    p.add_argument("--num_warmup_episodes", type=int, default=5)
-    p.add_argument("--num_episode_steps", type=int, default=200)
-    p.add_argument("--num_train_epochs", type=int, default=50)
+    p.add_argument("--num_episodes", type=int, default=30)
+    p.add_argument("--num_warmup_episodes", type=int, default=4)
+    p.add_argument("--num_episode_steps", type=int, default=500)
+    p.add_argument("--num_train_epochs", type=int, default=100)
     p.add_argument("--num_simulations", type=int, default=500)
     p.add_argument("--max_depth", type=int, default=20)
     p.add_argument("--max_depth_end", type=int, default=20)
-    p.add_argument("--return_steps", type=int, default=5)
-    p.add_argument("--return_steps_end", type=int, default=5)
-    p.add_argument("--seq_size", type=int, default=30)
-    p.add_argument("--seq_size_end", type=int, default=30)
+    p.add_argument("--return_steps", type=int, default=10)
+    p.add_argument("--return_steps_end", type=int, default=10)
+    p.add_argument("--seq_size", type=int, default=50)
+    p.add_argument("--seq_size_end", type=int, default=50)
     p.add_argument("--temp_start", type=float, default=1.0)
     p.add_argument("--temp_end", type=float, default=0.2)
     p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=50)
+    p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--value_dim", type=int, default=32)
     p.add_argument("--rssm_embed_dim", type=int, default=256)
     p.add_argument("--rssm_state_dim", type=int, default=32)
-    p.add_argument("--rssm_num_discrete", type=int, default=8)
-    p.add_argument("--rssm_discrete_dim", type=int, default=8)
+    p.add_argument("--rssm_num_discrete", type=int, default=16)
+    p.add_argument("--rssm_discrete_dim", type=int, default=16)
     p.add_argument("--rssm_hidden_dim", type=int, default=200)
     p.add_argument("--policy_hidden_dim", type=int, default=256)
     p.add_argument("--policy_depth", type=int, default=2)
@@ -194,7 +194,7 @@ def main():
                     k1,
                     batch_size=args.batch_size,
                     steps=updated["seq_size"],
-                    weighted=False,
+                    weighted=True,
                 )
                 model, opt_state, aux = train_step(model, batch, optim, opt_state, k2)
                 train_steps += 1
