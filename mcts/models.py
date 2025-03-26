@@ -28,10 +28,10 @@ class Model(eqx.Module):
         rssm_hidden_dim: int,
         policy_hidden_dim: int,
         policy_depth: int,
+        value_dim: int,
         key: jr.PRNGKey,
         reward_dim: int = 3,
         reward_offset: int = 1,
-        value_dim: int = 20,
     ):
         key_policy, key_rssm, key_reward = jr.split(key, 3)
         feature_dim = rssm_state_dim + (rssm_num_discrete * rssm_discrete_dim)
@@ -56,8 +56,8 @@ class Model(eqx.Module):
         self.reward_head = eqx.nn.MLP(
             in_size=feature_dim,
             out_size=reward_dim,
-            width_size=policy_hidden_dim,
-            depth=policy_depth,
+            width_size=rssm_hidden_dim,
+            depth=2,
             key=key_reward,
         )
         self.reward_dim = reward_dim
@@ -119,7 +119,6 @@ def recurrent_fn(
     rew_argmax = jnp.argmax(rew_probs, axis=-1)
     predicted_reward = rew_argmax - model.reward_offset
 
-    # discount = jnp.ones((B,))
     discount = jnp.ones((B,)) * 0.999
 
     return (

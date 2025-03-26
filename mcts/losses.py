@@ -23,7 +23,7 @@ def l2_loss(model: eqx.Module) -> jnp.ndarray:
 
 
 def kl_loss(
-    prior_logits: Array, post_logits: Array, free_nats: float = 1.0, alpha: float = 0.8
+    prior_logits: Array, post_logits: Array, free_nats: float = 0.1, alpha: float = 0.8
 ) -> Array:
     kl_lhs = optax.losses.kl_divergence_with_log_targets(
         lax.stop_gradient(post_logits), prior_logits
@@ -85,6 +85,9 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
         )(batch.returns[:, t])
         val_1hot_t = nn.one_hot(val_idx_t, model.policy.value_dim)
         value_ce_t = jnp.mean(optax.softmax_cross_entropy(val_logits_t, val_1hot_t))
+        # val_t = batch.returns[:, t]
+        # value_ce_t = jnp.mean(jnp.sum((val_logits_t - val_t) ** 2, axis=-1))
+        # value_ce_t = 0.0
 
         pi_loss_t = jnp.mean(
             optax.softmax_cross_entropy(pol_logits_t, batch.action_probs[:, t])
