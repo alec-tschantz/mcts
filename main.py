@@ -10,7 +10,7 @@ from jax import numpy as jnp
 from jax import random as jr
 from jax import tree_util as jtu
 
-gym.register_envs(ale_py)
+gym.register_envs(ale_py) 
 
 import mcts
 from mcts import models, rssm, losses, utils, buffers, wrappers
@@ -20,15 +20,15 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--env_name", type=str, default="ALE/Pong-v5")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--total_steps", type=int, default=10_000)
-    p.add_argument("--warmup_steps", type=int, default=200)
-    p.add_argument("--train_every", type=int, default=200)
+    p.add_argument("--total_steps", type=int, default=100_000)
+    p.add_argument("--warmup_steps", type=int, default=1_000)
+    p.add_argument("--train_every", type=int, default=500)
     p.add_argument("--num_train_epochs", type=int, default=30)
     p.add_argument("--warmup_num_simulations", type=int, default=1)
     p.add_argument("--warmup_max_depth", type=int, default=1)
     p.add_argument("--num_simulations", type=int, default=100)
     p.add_argument("--max_depth", type=int, default=20)
-    p.add_argument("--max_episode_steps", type=int, default=200)
+    p.add_argument("--max_episode_steps", type=int, default=500)
     p.add_argument("--seq_size", type=int, default=30)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--temperature_final", type=float, default=0.2)
@@ -39,7 +39,7 @@ def parse_args():
     p.add_argument("--rssm_num_discrete", type=int, default=8)
     p.add_argument("--rssm_discrete_dim", type=int, default=8)
     p.add_argument("--rssm_hidden_dim", type=int, default=32)
-    p.add_argument("--policy_hidden_dim", type=int, default=128)
+    p.add_argument("--policy_hidden_dim", type=int, default=64)
     p.add_argument("--policy_depth", type=int, default=2)
     p.add_argument("--value_hidden_dim", type=int, default=64)
     p.add_argument("--value_depth", type=int, default=2)
