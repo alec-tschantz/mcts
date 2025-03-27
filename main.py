@@ -116,7 +116,16 @@ def rollout_episode(
         next_obs, next_env_state, rew, done, _ = env.step(
             rng_step, env_state, action[0], env_params
         )
+        
+        # TODO:
+        next_obs, next_env_state = lax.cond(
+            done,
+            lambda _:  env.reset(rng_step, env_params),
+            lambda _: (next_obs, next_env_state),
+            operand=None,
+        )        
         # new_post = lax.select(done, rssm.init_post_state(model.rssm), new_post)
+        
         return (rng, next_env_state, next_obs, new_post), (
             obs,
             action.squeeze(),
@@ -206,6 +215,7 @@ def main():
     for ep in range(args.num_episodes):
         updated = update_dynamic_params(dyn_params, ep)
         key, subkey = jr.split(key)
+
         traj, env_state, obs, post = rollout_episode(
             rng_key=subkey,
             env_state=env_state,
