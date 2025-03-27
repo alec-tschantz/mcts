@@ -1,10 +1,6 @@
 from jax import numpy as jnp, nn
 
-from .buffer import Transition
-
-
-def entropy(probs):
-    return float(-jnp.mean(jnp.sum(probs * jnp.log(probs + 1e-12), axis=-1)))
+from .buffers import Transition
 
 
 def compute_returns(transition: Transition, steps=10, gamma=0.99, alpha=0.5):
@@ -50,22 +46,35 @@ def compute_returns(transition: Transition, steps=10, gamma=0.99, alpha=0.5):
     )
 
 
-def map_class_to_value(
-    bin_idx: int, value_dim: int, value_min: float, value_max: float
-) -> float:
-    bin_width = (value_max - value_min) / float(value_dim)
-    return value_min + (bin_idx + 0.5) * bin_width
+def entropy(probs):
+    return float(-jnp.mean(jnp.sum(probs * jnp.log(probs + 1e-12), axis=-1)))
 
 
-def map_value_to_class(
-    value: float, value_dim: int, value_min: float, value_max: float
-) -> int:
-    v_clamped = jnp.clip(value, value_min, value_max)
-    bin_width = (value_max - value_min) / float(value_dim)
-    idx = (v_clamped - value_min) // bin_width
-    return jnp.minimum(idx.astype(int), value_dim - 1)
+def scalar_to_support(x, support_size):
+    x = _scaling(x)
+    x = jnp.clip(x, -support_size, support_size)
+    low = jnp.floor(x).astype(jnp.int32)
+    high = jnp.ceil(x).astype(jnp.int32)
+    prob_high = x - low
+    prob_low = 1.0 - prob_high
+    idx_low = low + support_size
+    idx_high = high + support_size
+    support_low = nn.one_hot(idx_low, 2 * support_size + 1) * prob_low[..., None]
+    support_high = nn.one_hot(idx_high, 2 * support_size + 1) * prob_high[..., None]
+    return support_low + support_high
 
 
-def map_reward_to_class(r, offset, dim):
-    idx = jnp.clip(r + offset, 0, dim - 1)
-    return idx.astype(int)
+def support_to_scalar(probs, support_size):
+    x = jnp.sum((jnp.arange(2 * support_size + 1) - support_size) * probs, axis=-1)
+    x = _inv_scaling(x)
+    return x
+
+
+def _scaling(x, eps: float = 1e-3):
+    return jnp.sign(x) * (jnp.sqrt(jnp.abs(x) + 1) - 1) + eps * x
+
+
+def _inv_scaling(x, eps: float = 1e-3):
+    return jnp.sign(x) * (
+        ((jnp.sqrt(1 + 4 * eps * (jnp.abs(x) + 1 + eps)) - 1) / (2 * eps)) ** 2 - 1
+    )

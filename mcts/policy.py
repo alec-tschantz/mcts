@@ -6,9 +6,6 @@ from jax import Array, numpy as jnp, random as jr, nn
 class Policy(eqx.Module):
     value_head: eqx.nn.MLP
     policy_head: eqx.nn.MLP
-    value_dim: int
-    value_min: float
-    value_max: float
 
 
 def forward(policy: Policy, inp: Array) -> tuple[Array, Array]:
@@ -21,12 +18,10 @@ def forward(policy: Policy, inp: Array) -> tuple[Array, Array]:
 def init_policy(
     feature_dim: int,
     action_dim: int,
+    value_dim: int,
     width: int,
     depth: int,
     key: jr.PRNGKey,
-    value_dim: int = 10,
-    value_min: float = -1.0,
-    value_max: float = 1.0,
 ) -> Policy:
     k_val, k_pol = jr.split(key, 2)
     return Policy(
@@ -44,7 +39,4 @@ def init_policy(
             depth=depth,
             key=k_pol,
         ),
-        value_dim=value_dim,
-        value_min=value_min,
-        value_max=value_max,
     )

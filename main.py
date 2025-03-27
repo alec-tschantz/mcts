@@ -9,7 +9,7 @@ from jax import random as jr
 from jax import tree_util as jtu
 from jax import vmap, lax
 import mcts
-from mcts import models, rssm, losses, utils
+from mcts import models, rssm, losses, utils, buffers
 
 
 def parse_args():
