@@ -9,7 +9,6 @@ class Policy(eqx.Module):
 
 
 def forward(policy: Policy, inp: Array) -> tuple[Array, Array]:
-    inp = inp.reshape(-1)
     value_logits = policy.value_head(inp)
     policy_logits = policy.policy_head(inp)
     return value_logits, policy_logits

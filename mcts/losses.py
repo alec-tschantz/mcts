@@ -49,13 +49,11 @@ def mse_loss(pred: Array, target: Array) -> Array:
 
 @eqx.filter_jit
 def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
-    batch_obs = batch.obs
-    B, T, K, D = batch_obs.shape
-    batch_obs = batch_obs.reshape(B, T, K * D)
-
+    B, T = batch.obs.shape[:2]
+    
     obs_emb = vmap(
         lambda obs_t: vmap(lambda o: forward_encoder(model.rssm.encoder, o))(obs_t)
-    )(batch_obs)
+    )(batch.obs)
 
     init_post = init_post_state(model.rssm, batch_shape=(B,))
 
@@ -74,7 +72,7 @@ def loss_fn(model: Model, batch: Transition, key: jr.PRNGKey):
         )
         rec_obs_t = vmap(forward_decoder, in_axes=(None, 0))(model.rssm.decoder, post_t)
 
-        real_obs_t = batch_obs[:, t]
+        real_obs_t = batch.obs[:, t]
         mse_t = jnp.mean(jnp.sum((rec_obs_t - real_obs_t) ** 2, axis=-1))
         kl_t = jnp.mean(vmap(kl_loss)(prior_t.logits, post_t.logits))
 

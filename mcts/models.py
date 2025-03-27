@@ -125,8 +125,8 @@ def action_fn(
     key: jr.PRNGKey,
     model: Model,
     post: rssm.State,
+    temperature: float = 1.0,
     max_depth: int = 20,
-    gumbel_scale: float = 1.0,
     num_simulations: int = 500,
 ):
     root = root_fn(key, model, post)
@@ -137,7 +137,7 @@ def action_fn(
         recurrent_fn=recurrent_fn,
         num_simulations=num_simulations,
         max_depth=max_depth,
-        gumbel_scale=gumbel_scale,
+        gumbel_scale=temperature,
     )
     return out.action, out.action_weights, root.value
 

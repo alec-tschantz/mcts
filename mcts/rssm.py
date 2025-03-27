@@ -47,7 +47,7 @@ class RSSM(eqx.Module):
     action_dim: int
 
 
-class State(NamedTuple):
+class State(eqx.Module):
     logits: Array
     sample: Array
     state: Array
