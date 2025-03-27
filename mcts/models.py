@@ -65,6 +65,7 @@ class Model(eqx.Module):
 
 
 def root_fn(key: jr.PRNGKey, model: Model, post: rssm.State) -> mctx.RootFnOutput:
+    B = post.sample.shape[0]
     flat_sample = vmap(lambda x: x.flatten())(post.sample)
     features = jnp.concatenate([flat_sample, post.state], axis=-1)
     value_logits, policy_logits = vmap(policy.forward, in_axes=(None, 0))(
@@ -78,9 +79,15 @@ def root_fn(key: jr.PRNGKey, model: Model, post: rssm.State) -> mctx.RootFnOutpu
         model.policy.value_min,
         model.policy.value_max,
     )
+    # return mctx.RootFnOutput(
+    #     prior_logits=policy_logits,
+    #     value=continuous_val,
+    #     embedding=post,
+    # )
+
     return mctx.RootFnOutput(
-        prior_logits=policy_logits,
-        value=continuous_val,
+        prior_logits=jnp.ones((B, model.rssm.action_dim,)) / 3,
+        value=jnp.zeros((B,)),
         embedding=post,
     )
 
@@ -121,12 +128,21 @@ def recurrent_fn(
 
     discount = jnp.ones((B,)) * 0.999
 
+    # return (
+    #     mctx.RecurrentFnOutput(
+    #         reward=predicted_reward.astype(jnp.float32),
+    #         discount=discount,
+    #         prior_logits=policy_logits,
+    #         value=continuous_val,
+    #     ),
+    #     prior,
+    # )
     return (
         mctx.RecurrentFnOutput(
             reward=predicted_reward.astype(jnp.float32),
             discount=discount,
-            prior_logits=policy_logits,
-            value=continuous_val,
+            prior_logits=jnp.ones((B, model.rssm.action_dim,)) / 3,
+            value=jnp.zeros((B,)),
         ),
         prior,
     )

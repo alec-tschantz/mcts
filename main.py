@@ -29,7 +29,7 @@ def parse_args():
     p.add_argument("--temp_start", type=float, default=1.0)
     p.add_argument("--temp_end", type=float, default=0.2)
     p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=128)
+    p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--value_dim", type=int, default=32)
     p.add_argument("--rssm_embed_dim", type=int, default=256)
     p.add_argument("--rssm_state_dim", type=int, default=32)
@@ -200,6 +200,8 @@ def main():
                 train_steps += 1
                 log_train_metrics(aux, train_steps)
             log_episode_metrics(env, traj, env_steps, ep)
+
+
     eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
     with open("data/buffer.pkl", "wb") as f:
         pickle.dump(buffer, f)
