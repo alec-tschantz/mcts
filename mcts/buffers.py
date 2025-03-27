@@ -1,11 +1,14 @@
-from dataclasses import dataclass
-
 from typing import Any, List, Optional, Dict
 import equinox as eqx
 from jax import Array, numpy as jnp, random as jr
 
-@dataclass
-class Transition:
+import equinox as eqx
+import jax.numpy as jnp
+from typing import Optional, Dict, Any
+from jaxtyping import Array
+
+
+class Transition(eqx.Module):
     obs: Optional[Array] = None
     action: Optional[Array] = None
     reward: Optional[Array] = None
@@ -23,14 +26,40 @@ class Transition:
             else:
                 return jnp.concatenate([arr, jnp.expand_dims(x, 0)], axis=0)
 
-        self.obs = _append_field("obs", data["obs"])
-        self.action = _append_field("action", data["action"][0])
-        self.reward = _append_field(
+        new_fields = {}
+        new_fields["obs"] = _append_field("obs", data["obs"])
+        new_fields["action"] = _append_field("action", data["action"][0])
+        new_fields["reward"] = _append_field(
             "reward", jnp.array(data["reward"], dtype=jnp.float32)
         )
-        self.done = _append_field("done", jnp.array(data["done"], dtype=jnp.bool_))
-        self.value = _append_field("value", data["value"].squeeze())
-        self.action_probs = _append_field("action_probs", data["probs"].squeeze())
+        new_fields["done"] = _append_field(
+            "done", jnp.array(data["done"], dtype=jnp.bool_)
+        )
+        new_fields["value"] = _append_field("value", data["value"].squeeze())
+        new_fields["action_probs"] = _append_field(
+            "action_probs", data["probs"].squeeze()
+        )
+
+        return eqx.tree_at(
+            where=lambda t: (
+                t.obs,
+                t.action,
+                t.reward,
+                t.done,
+                t.value,
+                t.action_probs,
+            ),
+            pytree=self,
+            replace=(
+                new_fields["obs"],
+                new_fields["action"],
+                new_fields["reward"],
+                new_fields["done"],
+                new_fields["value"],
+                new_fields["action_probs"],
+            ),
+            is_leaf=lambda x: x is None,
+        )
 
 
 class Buffer(eqx.Module):

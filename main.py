@@ -10,42 +10,42 @@ from jax import random as jr
 from jax import tree_util as jtu
 
 import mcts
-from mcts import models, rssm, losses, utils, buffers
+from mcts import models, rssm, losses, utils, buffers, wrappers
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--env_name", type=str, default="CartPole-v1")
+    p.add_argument("--env_name", type=str, default="ALE/Pong-v5")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--total_steps", type=int, default=5000)
+    p.add_argument("--total_steps", type=int, default=10_000)
     p.add_argument("--warmup_steps", type=int, default=200)
     p.add_argument("--train_every", type=int, default=200)
-    p.add_argument("--num_train_epochs", type=int, default=50)
-    p.add_argument("--warmup_num_simulations", type=int, default=10)
-    p.add_argument("--warmup_max_depth", type=int, default=5)
+    p.add_argument("--num_train_epochs", type=int, default=30)
+    p.add_argument("--warmup_num_simulations", type=int, default=1)
+    p.add_argument("--warmup_max_depth", type=int, default=1)
     p.add_argument("--num_simulations", type=int, default=100)
     p.add_argument("--max_depth", type=int, default=20)
-    p.add_argument("--max_episode_steps", type=int, default=500)
-    p.add_argument("--seq_size", type=int, default=20)
+    p.add_argument("--max_episode_steps", type=int, default=200)
+    p.add_argument("--seq_size", type=int, default=30)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--temperature_final", type=float, default=0.2)
     p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=64)
-    p.add_argument("--rssm_embed_dim", type=int, default=16)
-    p.add_argument("--rssm_state_dim", type=int, default=8)
-    p.add_argument("--rssm_num_discrete", type=int, default=4)
-    p.add_argument("--rssm_discrete_dim", type=int, default=4)
-    p.add_argument("--rssm_hidden_dim", type=int, default=64)
-    p.add_argument("--policy_hidden_dim", type=int, default=64)
+    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--rssm_embed_dim", type=int, default=8)
+    p.add_argument("--rssm_state_dim", type=int, default=16)
+    p.add_argument("--rssm_num_discrete", type=int, default=8)
+    p.add_argument("--rssm_discrete_dim", type=int, default=8)
+    p.add_argument("--rssm_hidden_dim", type=int, default=32)
+    p.add_argument("--policy_hidden_dim", type=int, default=128)
     p.add_argument("--policy_depth", type=int, default=2)
     p.add_argument("--value_hidden_dim", type=int, default=64)
     p.add_argument("--value_depth", type=int, default=2)
     p.add_argument("--reward_hidden_dim", type=int, default=64)
     p.add_argument("--reward_depth", type=int, default=2)
-    p.add_argument("--support_size", type=int, default=10)
+    p.add_argument("--support_size", type=int, default=5)
     p.add_argument("--discount", type=float, default=0.99)
     p.add_argument("--return_steps", type=int, default=10)
-    p.add_argument("--name", type=str, default="cartpole")
+    p.add_argument("--name", type=str, default="pong")
     return p.parse_args()
 
 
@@ -61,11 +61,11 @@ def log_episode_metrics(frames, transition, env_steps, episode_idx):
     frames_stacked = jnp.transpose(jnp.stack(frames), (0, 3, 1, 2))
     wandb.log(
         {
-            "video": wandb.Video(np.array(frames_stacked), fps=30),
-            "episode/episode_idx": episode_idx,
-            "episode/episode_reward": float(jnp.sum(transition.reward)),
-            "episode/env_steps": env_steps,
-            "episode/policy_entropy": utils.entropy(transition.action_probs),
+            "eval/video": wandb.Video(np.array(frames_stacked), fps=30),
+            "eval/episode_idx": episode_idx,
+            "eval/episode_reward": float(jnp.sum(transition.reward)),
+            "eval/env_steps": env_steps,
+            "eval/policy_entropy": utils.entropy(transition.action_probs),
         }
     )
 
@@ -116,6 +116,8 @@ def main():
     wandb.config.update(vars(args))
 
     env = gym.make(args.env_name, render_mode="rgb_array")
+    env = wrappers.OCWrapper(env)
+    # env = gym.wrappers.NormalizeObservation(env)
     key = jr.PRNGKey(args.seed)
 
     obs_dim = int(env.observation_space.shape[0])
@@ -150,13 +152,9 @@ def main():
     obs, _ = env.reset(seed=int(subkey[0]))
     obs = jnp.array(obs, dtype=jnp.float32)
 
-    env_steps = 0
-    train_steps = 0
-    episode_steps = 0
-    episode_idx = 0
-
-    transition = buffers.Transition()
     frames = []
+    env_steps, train_step_count, episode_steps, episode_idx = 0, 0, 0, 0
+    transition = buffers.Transition()
 
     for step in range(args.total_steps):
         if episode_steps == 0:
@@ -185,22 +183,23 @@ def main():
             num_simulations,
         )
 
-        transition.append(out)
+        transition = transition.append(out)
 
         obs = next_obs
         env_steps += 1
         episode_steps += 1
 
         if out["done"] or (episode_steps >= args.max_episode_steps):
+            log_episode_metrics(frames, transition, env_steps, episode_idx)
+
             transition = utils.compute_returns(
                 transition, steps=args.return_steps, gamma=args.discount
             )
             buffer.add(transition, jnp.mean(transition.weight))
-            log_episode_metrics(frames, transition, env_steps, episode_idx)
 
             transition = buffers.Transition()
             episode_steps = 0
-            episode_idx = episode_idx + 1
+            episode_idx += 1
             key, subkey = jr.split(key)
             obs, _ = env.reset(seed=int(subkey[0]))
             obs = jnp.array(obs, dtype=jnp.float32)
@@ -213,8 +212,8 @@ def main():
                     k1, batch_size=args.batch_size, steps=args.seq_size
                 )
                 model, opt_state, aux = train_step(model, batch, optim, opt_state, k2)
-                train_steps += 1
-                log_train_metrics(aux, train_steps)
+                train_step_count += 1
+                log_train_metrics(aux, train_step_count)
 
     eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
     with open("data/buffer.pkl", "wb") as f:
