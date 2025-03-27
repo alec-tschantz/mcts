@@ -1,15 +1,13 @@
+import argparse
 import pickle
 import wandb
-import argparse
 import numpy as np
-
-import gymnax
+import gymnasium as gym
 import optax
 import equinox as eqx
 from jax import numpy as jnp
 from jax import random as jr
 from jax import tree_util as jtu
-from jax import vmap, lax
 
 import mcts
 from mcts import models, rssm, losses, utils, buffers
@@ -19,21 +17,20 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--env_name", type=str, default="CartPole-v1")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--num_episodes", type=int, default=30)
-    p.add_argument("--num_warmup_episodes", type=int, default=4)
-    p.add_argument("--num_episode_steps", type=int, default=500)
-    p.add_argument("--num_train_epochs", type=int, default=100)
+    p.add_argument("--total_steps", type=int, default=5000)
+    p.add_argument("--warmup_steps", type=int, default=200)
+    p.add_argument("--train_every", type=int, default=200)
+    p.add_argument("--num_train_epochs", type=int, default=50)
+    p.add_argument("--warmup_num_simulations", type=int, default=10)
+    p.add_argument("--warmup_max_depth", type=int, default=5)
     p.add_argument("--num_simulations", type=int, default=100)
     p.add_argument("--max_depth", type=int, default=20)
-    p.add_argument("--max_depth_end", type=int, default=20)
-    p.add_argument("--return_steps", type=int, default=10)
-    p.add_argument("--return_steps_end", type=int, default=10)
-    p.add_argument("--seq_size", type=int, default=32)
-    p.add_argument("--seq_size_end", type=int, default=32)
+    p.add_argument("--max_episode_steps", type=int, default=500)
+    p.add_argument("--seq_size", type=int, default=20)
     p.add_argument("--temperature", type=float, default=1.0)
-    p.add_argument("--temperature_end", type=float, default=0.2)
+    p.add_argument("--temperature_final", type=float, default=0.2)
     p.add_argument("--learning_rate", type=float, default=3e-4)
-    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--rssm_embed_dim", type=int, default=16)
     p.add_argument("--rssm_state_dim", type=int, default=8)
     p.add_argument("--rssm_num_discrete", type=int, default=4)
@@ -41,40 +38,34 @@ def parse_args():
     p.add_argument("--rssm_hidden_dim", type=int, default=64)
     p.add_argument("--policy_hidden_dim", type=int, default=64)
     p.add_argument("--policy_depth", type=int, default=2)
+    p.add_argument("--value_hidden_dim", type=int, default=64)
+    p.add_argument("--value_depth", type=int, default=2)
+    p.add_argument("--reward_hidden_dim", type=int, default=64)
+    p.add_argument("--reward_depth", type=int, default=2)
     p.add_argument("--support_size", type=int, default=10)
+    p.add_argument("--discount", type=float, default=0.99)
+    p.add_argument("--return_steps", type=int, default=10)
     p.add_argument("--name", type=str, default="cartpole")
     return p.parse_args()
 
 
-def update_dynamic_params(dyn, episode):
-    progress = (episode + 1) / dyn["total_episodes"]
+def update_dynamic_params(step, args):
+    progress = (step + 1) / args.total_steps
     return {
-        "max_depth": int(
-            dyn["max_depth"] + progress * (dyn["max_depth_end"] - dyn["max_depth"])
-        ),
-        "return_steps": int(
-            dyn["return_steps"]
-            + progress * (dyn["return_steps_end"] - dyn["return_steps"])
-        ),
-        "seq_size": int(
-            dyn["seq_size"] + progress * (dyn["seq_size_end"] - dyn["seq_size"])
-        ),
-        "temperature": dyn["temperature"]
-        + progress * (dyn["temperature_end"] - dyn["temperature"]),
+        "temperature": args.temperature
+        + progress * (args.temperature_final - args.temperature)
     }
 
 
-def log_episode_metrics(env, env_params, traj, env_steps, episode_idx):
-    # frames = jnp.stack([env.render(s, env_params) for s in traj.obs], axis=0)
-    # frames = (frames * 255).clip(0, 255).astype(jnp.uint8)
-    # frames = jnp.transpose(frames, (0, 3, 1, 2))
+def log_episode_metrics(frames, transition, env_steps, episode_idx):
+    frames_stacked = jnp.transpose(jnp.stack(frames), (0, 3, 1, 2))
     wandb.log(
         {
-            # "video": wandb.Video(np.array(frames), fps=30),
+            "video": wandb.Video(np.array(frames_stacked), fps=30),
             "episode/episode_idx": episode_idx,
-            "episode/episode_reward": float(jnp.sum(traj.reward)),
+            "episode/episode_reward": float(jnp.sum(transition.reward)),
             "episode/env_steps": env_steps,
-            "episode/policy_entropy": utils.entropy(traj.action_probs),
+            "episode/policy_entropy": utils.entropy(transition.action_probs),
         }
     )
 
@@ -88,62 +79,25 @@ def log_train_metrics(aux, train_steps):
     )
 
 
-@eqx.filter_jit
-def rollout_episode(
-    rng_key,
-    env_state,
-    obs,
-    post,
-    model,
-    env,
-    env_params,
-    num_steps,
-    temperature,
-    max_depth,
-    num_simulations,
+def rollout_step(
+    rng_key, env, model, post, obs, temperature, max_depth, num_simulations
 ):
-
     _batch = lambda x: jtu.tree_map(lambda y: y[None], x)
-
-    def scan_fn(carry, _):
-        rng, env_state, obs, post = carry
-        rng, rng_act, rng_step, rng_post = jr.split(rng, 4)
-        action, probs, value = models.action_fn(
-            rng_act, model, _batch(post), temperature, max_depth, num_simulations
-        )
-        new_post = models.compute_posterior(model, post, obs, action[0], rng_post)
-        next_obs, next_env_state, rew, done, _ = env.step(
-            rng_step, env_state, action[0], env_params
-        )
-
-        new_post = lax.select(done, rssm.init_post_state(model.rssm), new_post)
-
-        return (rng, next_env_state, next_obs, new_post), (
-            obs,
-            action.squeeze(),
-            rew,
-            done,
-            value.squeeze(),
-            probs.squeeze(),
-        )
-
-    init_carry = (rng_key, env_state, obs, post)
-    (final_rng, final_env_state, final_obs, final_post), data = lax.scan(
-        scan_fn, init_carry, None, length=num_steps
+    action, probs, value = models.action_fn(
+        rng_key, model, _batch(post), temperature, max_depth, num_simulations
     )
-    obs_seq, action_seq, reward_seq, done_seq, value_seq, probs_seq = data
-
-    transition = buffers.Transition(
-        obs=obs_seq,
-        action=action_seq,
-        reward=reward_seq,
-        done=done_seq,
-        value=value_seq,
-        action_probs=probs_seq,
-        returns=jnp.zeros_like(reward_seq),
-        weight=jnp.ones_like(reward_seq),
-    )
-    return transition, final_env_state, final_obs, final_post
+    post_new = models.compute_posterior(model, post, obs, action[0], rng_key)
+    next_obs, reward, terminated, truncated, _ = env.step(action[0].item())
+    done = terminated or truncated
+    out = {
+        "obs": obs,
+        "action": action,
+        "reward": reward,
+        "done": done,
+        "value": value,
+        "probs": probs,
+    }
+    return out, jnp.array(next_obs, dtype=jnp.float32), post_new
 
 
 @eqx.filter_jit
@@ -160,28 +114,13 @@ def main():
     args = parse_args()
     wandb.init(project="muzero", name=args.name)
     wandb.config.update(vars(args))
+
+    env = gym.make(args.env_name, render_mode="rgb_array")
     key = jr.PRNGKey(args.seed)
 
-    env, env_params = gymnax.make(args.env_name)
+    obs_dim = int(env.observation_space.shape[0])
+    action_dim = int(env.action_space.n)
     key, subkey = jr.split(key)
-    obs, env_state = env.reset(subkey, env_params)
-    obs_dim = int(np.prod(obs.shape))
-    action_dim = env.action_space(env_params).n
-
-    buffer = buffers.Buffer()
-    dyn_params = {
-        "max_depth": args.max_depth,
-        "max_depth_end": args.max_depth_end,
-        "return_steps": args.return_steps,
-        "return_steps_end": args.return_steps_end,
-        "seq_size": args.seq_size,
-        "seq_size_end": args.seq_size_end,
-        "temperature": args.temperature,
-        "temperature_end": args.temperature_end,
-        "total_episodes": args.num_episodes,
-    }
-    key, subkey = jr.split(key)
-
     model = models.init_model(
         obs_dim=obs_dim,
         action_dim=action_dim,
@@ -192,60 +131,97 @@ def main():
         rssm_hidden_dim=args.rssm_hidden_dim,
         policy_hidden_dim=args.policy_hidden_dim,
         policy_depth=args.policy_depth,
+        value_hidden_dim=args.value_hidden_dim,
+        value_depth=args.value_depth,
+        reward_hidden_dim=args.reward_hidden_dim,
+        reward_depth=args.reward_depth,
         support_size=args.support_size,
+        discount=args.discount,
         key=subkey,
-        discount=0.99,
     )
-    optim = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adam(args.learning_rate),
-    )
+
+    optim = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(args.learning_rate))
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
-    env_steps, train_steps = 0, 0
+
+    buffer = buffers.Buffer()
     post = rssm.init_post_state(model.rssm)
 
-    for ep in range(args.num_episodes):
-        updated = update_dynamic_params(dyn_params, ep)
+    key, subkey = jr.split(key)
+    obs, _ = env.reset(seed=int(subkey[0]))
+    obs = jnp.array(obs, dtype=jnp.float32)
+
+    env_steps = 0
+    train_steps = 0
+    episode_steps = 0
+    episode_idx = 0
+
+    transition = buffers.Transition()
+    frames = []
+
+    for step in range(args.total_steps):
+        if episode_steps == 0:
+            frames.clear()
+
+        dyn_params = update_dynamic_params(step, args)
+        num_simulations = (
+            args.warmup_num_simulations
+            if step < args.warmup_steps
+            else args.num_simulations
+        )
+        max_depth = (
+            args.warmup_max_depth if step < args.warmup_steps else args.max_depth
+        )
+
+        frames.append(env.render())
         key, subkey = jr.split(key)
-
-        traj, env_state, obs, post = rollout_episode(
-            rng_key=subkey,
-            env_state=env_state,
-            obs=obs,
-            post=post,
-            model=model,
-            env=env,
-            env_params=env_params,
-            num_steps=args.num_episode_steps,
-            temperature=updated["temperature"],
-            max_depth=updated["max_depth"],
-            num_simulations=args.num_simulations,
+        out, next_obs, post = rollout_step(
+            subkey,
+            env,
+            model,
+            post,
+            obs,
+            dyn_params["temperature"],
+            max_depth,
+            num_simulations,
         )
-        traj = utils.compute_returns(
-            traj, steps=updated["return_steps"], gamma=0.99, alpha=0.5
-        )
-        buffer.add(traj, jnp.mean(traj.weight))
-        env_steps = env_steps + traj.obs.shape[0]
 
-        if ep >= args.num_warmup_episodes:
+        transition.append(out)
+
+        obs = next_obs
+        env_steps += 1
+        episode_steps += 1
+
+        if out["done"] or (episode_steps >= args.max_episode_steps):
+            transition = utils.compute_returns(
+                transition, steps=args.return_steps, gamma=args.discount
+            )
+            buffer.add(transition, jnp.mean(transition.weight))
+            log_episode_metrics(frames, transition, env_steps, episode_idx)
+
+            transition = buffers.Transition()
+            episode_steps = 0
+            episode_idx = episode_idx + 1
+            key, subkey = jr.split(key)
+            obs, _ = env.reset(seed=int(subkey[0]))
+            obs = jnp.array(obs, dtype=jnp.float32)
+            post = rssm.init_post_state(model.rssm)
+
+        if step >= args.warmup_steps and (step + 1) % args.train_every == 0:
             for _ in range(args.num_train_epochs):
                 key, k1, k2 = jr.split(key, 3)
                 batch = buffer.sample(
-                    k1,
-                    batch_size=args.batch_size,
-                    steps=updated["seq_size"],
-                    weighted=True,
+                    k1, batch_size=args.batch_size, steps=args.seq_size
                 )
                 model, opt_state, aux = train_step(model, batch, optim, opt_state, k2)
                 train_steps += 1
                 log_train_metrics(aux, train_steps)
-            log_episode_metrics(env, env_params, traj, env_steps, ep)
 
-        eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
-        with open("data/buffer.pkl", "wb") as f:
-            pickle.dump(buffer, f)
+    eqx.tree_serialise_leaves(f"data/{args.name}.eqx", model)
+    with open("data/buffer.pkl", "wb") as f:
+        pickle.dump(buffer, f)
 
     wandb.finish()
+    env.close()
 
 
 if __name__ == "__main__":

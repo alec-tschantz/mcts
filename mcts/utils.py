@@ -5,8 +5,8 @@ from .buffers import Transition
 
 def compute_returns(transition: Transition, steps=10, gamma=0.99, alpha=0.5):
     T = transition.reward.shape[0]
-    out_returns = jnp.zeros_like(transition.returns)
-    out_weight = jnp.zeros_like(transition.weight)
+    out_returns = jnp.zeros_like(transition.reward)
+    out_weight = jnp.zeros_like(transition.reward)
 
     def compute(i):
         sum_r, discount, val_next, ended = 0.0, 1.0, 0.0, False

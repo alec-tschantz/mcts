@@ -11,7 +11,7 @@ dependencies = [
     "equinox==0.11.11",
     "optax==0.2.4",
     "mctx==0.0.5",
-    "gymnax==0.0.8",
+    "gymnasium==1.1.1",
     "wandb[media]==0.19.8"
 ]
 

@@ -18,8 +18,10 @@ def init_policy(
     feature_dim: int,
     action_dim: int,
     value_dim: int,
-    width: int,
-    depth: int,
+    policy_width: int,
+    policy_depth: int,
+    value_width: int,
+    value_depth: int,
     key: jr.PRNGKey,
 ) -> Policy:
     k_val, k_pol = jr.split(key, 2)
@@ -27,15 +29,15 @@ def init_policy(
         value_head=eqx.nn.MLP(
             in_size=feature_dim,
             out_size=value_dim,
-            width_size=width,
-            depth=depth,
+            width_size=value_width,
+            depth=value_depth,
             key=k_val,
         ),
         policy_head=eqx.nn.MLP(
             in_size=feature_dim,
             out_size=action_dim,
-            width_size=width,
-            depth=depth,
+            width_size=policy_width,
+            depth=policy_depth,
             key=k_pol,
         ),
     )

@@ -28,19 +28,25 @@ def init_model(
     rssm_hidden_dim: int,
     policy_hidden_dim: int,
     policy_depth: int,
+    value_hidden_dim: int,
+    value_depth: int,
+    reward_hidden_dim: int,
+    reward_depth: int,
     support_size: int,
+    discount: float,
     key: jr.PRNGKey,
-    discount: float = 0.99,
 ) -> Model:
     key_policy, key_rssm, key_reward = jr.split(key, 3)
-    feature_dim = rssm_state_dim + (rssm_num_discrete * rssm_discrete_dim)
+    feature_dim = int(rssm_state_dim + (rssm_num_discrete * rssm_discrete_dim))
 
     pol = policy.init_policy(
         feature_dim=feature_dim,
         action_dim=action_dim,
-        value_dim=(2 * support_size + 1),
-        width=policy_hidden_dim,
-        depth=policy_depth,
+        value_dim=int(2 * support_size + 1),
+        policy_width=policy_hidden_dim,
+        policy_depth=policy_depth,
+        value_width=value_hidden_dim,
+        value_depth=value_depth,
         key=key_policy,
     )
 
@@ -57,9 +63,9 @@ def init_model(
 
     rew_head = eqx.nn.MLP(
         in_size=feature_dim,
-        out_size=(2 * support_size + 1),
-        width_size=rssm_hidden_dim,
-        depth=2,
+        out_size=int(2 * support_size + 1),
+        width_size=reward_hidden_dim,
+        depth=reward_depth,
         key=key_reward,
     )
 

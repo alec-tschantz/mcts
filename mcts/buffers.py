@@ -1,17 +1,36 @@
-from typing import List
+from dataclasses import dataclass
+
+from typing import Any, List, Optional, Dict
 import equinox as eqx
 from jax import Array, numpy as jnp, random as jr
 
+@dataclass
+class Transition:
+    obs: Optional[Array] = None
+    action: Optional[Array] = None
+    reward: Optional[Array] = None
+    done: Optional[Array] = None
+    value: Optional[Array] = None
+    action_probs: Optional[Array] = None
+    returns: Optional[Array] = None
+    weight: Optional[Array] = None
 
-class Transition(eqx.Module):
-    obs: Array
-    action: Array
-    reward: Array
-    done: Array
-    value: Array
-    action_probs: Array
-    returns: Array
-    weight: Array
+    def append(self, data: Dict[str, Any]):
+        def _append_field(field_name: str, x: jnp.ndarray):
+            arr = getattr(self, field_name)
+            if arr is None:
+                return jnp.expand_dims(x, axis=0)
+            else:
+                return jnp.concatenate([arr, jnp.expand_dims(x, 0)], axis=0)
+
+        self.obs = _append_field("obs", data["obs"])
+        self.action = _append_field("action", data["action"][0])
+        self.reward = _append_field(
+            "reward", jnp.array(data["reward"], dtype=jnp.float32)
+        )
+        self.done = _append_field("done", jnp.array(data["done"], dtype=jnp.bool_))
+        self.value = _append_field("value", data["value"].squeeze())
+        self.action_probs = _append_field("action_probs", data["probs"].squeeze())
 
 
 class Buffer(eqx.Module):
