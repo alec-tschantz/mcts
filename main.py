@@ -2,12 +2,15 @@ import argparse
 import pickle
 import wandb
 import numpy as np
+import ale_py
 import gymnasium as gym
 import optax
 import equinox as eqx
 from jax import numpy as jnp
 from jax import random as jr
 from jax import tree_util as jtu
+
+gym.register_envs(ale_py)
 
 import mcts
 from mcts import models, rssm, losses, utils, buffers, wrappers
@@ -112,7 +115,7 @@ def train_step(model, batch, optim, opt_state, rng_key):
 
 def main():
     args = parse_args()
-    wandb.init(project="muzero", name=args.name)
+    wandb.init(project="muzero-pong", name=args.name)
     wandb.config.update(vars(args))
 
     env = gym.make(args.env_name, render_mode="rgb_array")

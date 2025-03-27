@@ -11,7 +11,8 @@ dependencies = [
     "equinox==0.11.11",
     "optax==0.2.4",
     "mctx==0.0.5",
-    "gymnasium[atari]==1.1.1",
+    "gymnasium==1.1.1",
+    "ale-py==0.10.2",
     "wandb[media]==0.19.8"
 ]
 
